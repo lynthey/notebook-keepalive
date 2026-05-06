@@ -1,0 +1,75 @@
+name: paperspace-keepalive
+
+# Paperspace Free GPU notebook を idle-shutdown から守るための外部 keepalive。
+# (autosdgen の B 対策である container 内 loopback heartbeat だけでは
+#  Mac terminal close 後に container が 6h 待たず落ちる事例があったため、
+#  Paperspace のプロキシ層に「外部からの本物のトラフィック」を見せる目的)
+#
+# このリポジトリは public 専用(GH Actions の private 課金回避)。
+# 機密は GH Secrets の PAPERSPACE_API_KEY 1 本だけ(public でも復号不可)。
+# autosdgen 本体(private)とは独立で、ロジックの公開リスクなし。
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # 最短 5 min。GH Actions の cron は高負荷時に遅延あり
+  workflow_dispatch: {}     # 手動テスト用
+
+# 直前 run が遅延しても二重発火させない
+concurrency:
+  group: paperspace-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: resolve and ping notebook /api/status
+        env:
+          PAPERSPACE_API_KEY: ${{ secrets.PAPERSPACE_API_KEY }}
+          NOTEBOOK_NAME: AUTOSDGEN
+        run: |
+          set -uo pipefail
+
+          if [ -z "${PAPERSPACE_API_KEY}" ]; then
+            echo "::error::PAPERSPACE_API_KEY secret is empty"
+            exit 1
+          fi
+
+          # 1. List notebooks → pick most recently modified one matching NOTEBOOK_NAME
+          listing=$(curl -fsS "https://api.paperspace.com/v1/notebooks?limit=100" \
+            -H "Authorization: Bearer ${PAPERSPACE_API_KEY}")
+          nid=$(echo "${listing}" \
+            | jq -r --arg name "${NOTEBOOK_NAME}" \
+                '[.items[] | select(.name == $name)] | sort_by(.dtModified) | reverse | .[0].id // ""')
+          if [ -z "${nid}" ]; then
+            echo "no notebook named '${NOTEBOOK_NAME}' — nothing to keepalive"
+            exit 0
+          fi
+
+          # 2. Detail endpoint has fqdn/token (listing endpoint usually doesn't)
+          detail=$(curl -fsS "https://api.paperspace.com/v1/notebooks/${nid}" \
+            -H "Authorization: Bearer ${PAPERSPACE_API_KEY}")
+          state=$(echo "${detail}" | jq -r '.state // ""')
+          fqdn=$(echo "${detail}"  | jq -r '.fqdn  // ""')
+          token=$(echo "${detail}" | jq -r '.token // ""')
+
+          state_lc=$(printf '%s' "${state}" | tr '[:upper:]' '[:lower:]')
+          if [ "${state_lc}" != "running" ]; then
+            echo "state=${state} — skip ping"
+            exit 0
+          fi
+          if [ -z "${fqdn}" ] || [ -z "${token}" ]; then
+            echo "missing fqdn/token (state=${state}) — skip"
+            exit 0
+          fi
+
+          # 3. External GET against jupyter /api/status — this is the traffic
+          #    that should register with Paperspace's edge proxy (loopback
+          #    heartbeat inside the container does NOT)
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: token ${token}" \
+            --max-time 15 \
+            "https://${fqdn}/api/status")
+          echo "$(date -u +%FT%TZ) GET https://${fqdn}/api/status -> ${code}"
+          [ "${code}" = "200" ] || { echo "::warning::non-200 response (${code})"; exit 1; }
