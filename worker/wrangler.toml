@@ -10,3 +10,9 @@ crons = ["* * * * *"]
 # 機密ではない設定。PAPERSPACE_API_KEY は `wrangler secret put` 経由で別管理。
 [vars]
 NOTEBOOK_NAME = "AUTOSDGEN"
+
+# Observability: dashboard から過去 7 日分のログを検索可能にする。
+# 1-min cron × 1〜3 行 ≒ 5k logs/日で、無料枠 200k logs/日に余裕で収まる。
+# notebook が落ちた事後に「いつ ping が失敗したか」を遡れるように有効化。
+[observability]
+enabled = true
