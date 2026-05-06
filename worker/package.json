@@ -1,0 +1,14 @@
+{
+  "name": "notebook-keepalive-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker that pings Paperspace notebook /api/status every 1 min to prevent idle shutdown.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --test-scheduled",
+    "tail": "wrangler tail --format=pretty"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  }
+}

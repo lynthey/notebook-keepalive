@@ -1,0 +1,12 @@
+name = "paperspace-keepalive"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# 1-min cron。Cloudflare Workers Cron Triggers は最短 1 分で公式サポート、
+# 高負荷時の遅延も GitHub Actions schedule (best-effort) より一桁安定。
+[triggers]
+crons = ["* * * * *"]
+
+# 機密ではない設定。PAPERSPACE_API_KEY は `wrangler secret put` 経由で別管理。
+[vars]
+NOTEBOOK_NAME = "AUTOSDGEN"

@@ -2,3 +2,9 @@
 *.swp
 *~
 .env
+
+# Cloudflare Worker artifacts
+worker/node_modules/
+worker/.wrangler/
+worker/.dev.vars
+worker/package-lock.json
