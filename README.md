@@ -9,7 +9,7 @@ keepalive。**Cloudflare Worker (1-min cron)** で実装。
 
 1. Paperspace API (`/v1/notebooks`) で `NOTEBOOK_NAME=AUTOSDGEN` を resolve
 2. 詳細 API で現在の `fqdn` と Jupyter `token` を取得(再起動で変わるため動的解決)
-3. `https://{fqdn}/api/status` を外部 URL 経由で叩く
+3. `https://{fqdn}/api/contents/?content=0` を外部 URL 経由で叩く(ヘッダのみ)
 
 autosdgen 側の B 対策(container 内 loopback heartbeat 60s 間隔)は Paperspace
 edge proxy を通らないため、本リポジトリで「本物の外部トラフィック」を補う。
@@ -51,6 +51,9 @@ curl https://paperspace-keepalive.<your-cf-subdomain>.workers.dev/
   (推定 30 分前後)を防げなかった。GH Actions schedule は best-effort 仕様で
   保証されないため、1-min 公式サポートの Cloudflare Workers Cron Triggers に
   全面移行(2026-05-06)。
-- `/api/status` への 200 応答が「Paperspace edge proxy に active として認識
-  される」かは未検証。万一無視される endpoint だった場合は `/api/contents`
-  等の実 endpoint に変える余地あり。
+- 当初は `/api/status` を叩いていたが、1-min ping 配備済みでも 1h37m で
+  inactivity 落ちした(2026-05-06 boot 22:08 JST → 死亡 23:46 JST)。仮説:
+  Paperspace edge は `/api/status` のような health check 系 endpoint を
+  「ユーザー活性 traffic」とみなさない(そうでないと idle 検知が無意味になる)。
+  対策として `/api/contents/?content=0`(実 I/O = ディレクトリ listing)に
+  swap。ヘッダのみ取得で転送量数百バイト。

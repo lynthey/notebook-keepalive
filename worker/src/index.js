@@ -1,8 +1,15 @@
 // Cloudflare Worker: Paperspace notebook keepalive.
 //
-// 1 分おきに Paperspace API → 動的に fqdn/token を解決 → Jupyter /api/status を
-// 外部 URL 経由で叩く。autosdgen の B 対策(container 内 loopback heartbeat)が
+// 1 分おきに Paperspace API → 動的に fqdn/token を解決 → Jupyter /api/contents/
+// を外部 URL 経由で叩く。autosdgen の B 対策(container 内 loopback heartbeat)が
 // Paperspace edge proxy を通らない問題を補う。
+//
+// endpoint が /api/status から /api/contents/ になった経緯: 2026-05-06 の
+// 試走で 1-min ping 配備済みにも関わらず boot 1h37m で inactivity 落ちした。
+// jupyter は /api/status の 200 応答を log に残さないので Worker 側の到達確認は
+// 取れないが、Paperspace edge が「自分自身の health check に使える endpoint を
+// 活性 traffic と数えるはずがない」前提で /api/contents/ (実 I/O = ディレクトリ
+// listing) に切り替え。?content=0 で本文は読まずヘッダだけにして軽く保つ。
 //
 // GitHub Actions の `*/5` cron が実測 ~12.5% 起動率しかなかったため、Workers Cron
 // Triggers (1-min・公式 SLA) に置き換えた経緯あり。
@@ -92,9 +99,13 @@ async function keepalive(env, source) {
     return { ok: true, message: m };
   }
 
+  // /api/contents/?content=0: ルートディレクトリの listing をヘッダのみ取得。
+  // ?content=0 で entry の中身を返さないため転送量は数百バイト。Paperspace edge
+  // から見れば「ユーザーがファイルツリーを開いた」相当の I/O traffic に見える。
+  const path = "/api/contents/?content=0";
   let code;
   try {
-    const r = await fetch(`https://${fqdn}/api/status`, {
+    const r = await fetch(`https://${fqdn}${path}`, {
       headers: { Authorization: `token ${token}` },
       cf: { cacheTtl: 0, cacheEverything: false },
     });
@@ -105,7 +116,7 @@ async function keepalive(env, source) {
     return { ok: false, message: m };
   }
 
-  const m = `${ts} [${source}] GET https://${fqdn}/api/status -> ${code}`;
+  const m = `${ts} [${source}] GET https://${fqdn}${path} -> ${code}`;
   if (code === 200) {
     console.log(m);
     return { ok: true, message: m };
